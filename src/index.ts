@@ -63,16 +63,19 @@ export async function handleEmail(
 
 	if (!destination || senders.size === 0) {
 		message.setReject("Email routing is not configured");
+		console.warn({ event: "email_routing_rejected", reason: "missing_configuration" });
 		return;
 	}
 
 	// Email Routing exposes the SMTP envelope sender as `message.from`.
 	if (!senders.has(message.from.trim().toLowerCase())) {
 		message.setReject("Sender is not allowed");
+		console.warn({ event: "email_routing_rejected", reason: "sender_not_allowed" });
 		return;
 	}
 
 	await message.forward(destination);
+	console.info({ event: "email_routing_forwarded" });
 }
 
 export default {
