@@ -54,23 +54,27 @@ async function renderSetupPage(request: Request, env: Env): Promise<Response> {
 		.transform(response);
 }
 
+type EmailRoutingEnv = Env & {
+	EMAIL_FORWARD_TO?: string;
+};
+
 export async function handleEmail(
 	message: ForwardableEmailMessage,
-	env: Env,
+	env: EmailRoutingEnv,
 ): Promise<void> {
-	const destination = env.FORWARD_TO.trim();
-	const senders = allowedSenders(env.ALLOWED_SENDERS);
+	const recipientDomain = env.ALLOWED_RECIPIENT_DOMAIN?.trim().toLowerCase();
+	const destination = (env.EMAIL_FORWARD_TO ?? "").trim();
 
-	if (!destination || senders.size === 0) {
+	if (!recipientDomain || !destination) {
 		message.setReject("Email routing is not configured");
 		console.warn({ event: "email_routing_rejected", reason: "missing_configuration" });
 		return;
 	}
 
-	// Email Routing exposes the SMTP envelope sender as `message.from`.
-	if (!senders.has(message.from.trim().toLowerCase())) {
-		message.setReject("Sender is not allowed");
-		console.warn({ event: "email_routing_rejected", reason: "sender_not_allowed" });
+	// Check the SMTP envelope recipient so sender and message headers cannot choose the route.
+	if (!message.to.trim().toLowerCase().endsWith(`@${recipientDomain}`)) {
+		message.setReject("Recipient domain is not allowed");
+		console.warn({ event: "email_routing_rejected", reason: "recipient_domain_not_allowed" });
 		return;
 	}
 

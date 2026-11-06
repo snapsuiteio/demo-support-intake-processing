@@ -2,20 +2,22 @@ import { SELF } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import worker, { handleEmail } from "../src/index";
 
-type TestEnv = Omit<Env, "ALLOWED_SENDERS" | "FORWARD_TO" | "ROUTE_ADDRESS"> & {
+type TestEnv = Omit<Env, "ALLOWED_RECIPIENT_DOMAIN" | "ALLOWED_SENDERS" | "FORWARD_TO" | "ROUTE_ADDRESS"> & {
+	ALLOWED_RECIPIENT_DOMAIN: string;
 	ALLOWED_SENDERS: string;
+	EMAIL_FORWARD_TO: string;
 	FORWARD_TO: string;
 	ROUTE_ADDRESS: string;
 };
 
-function createMessage(from = "trusted@partner.example") {
+function createMessage(to = "support@company.example", from = "anyone@sender.example") {
 	const forward = vi.fn<ForwardableEmailMessage["forward"]>();
 	const setReject = vi.fn<ForwardableEmailMessage["setReject"]>();
 
 	return {
 		message: {
 			from,
-			to: "support@company.example",
+			to,
 			forward,
 			setReject,
 		} as unknown as ForwardableEmailMessage,
@@ -27,7 +29,9 @@ function createMessage(from = "trusted@partner.example") {
 function createEnv(overrides: Partial<TestEnv> = {}): Env {
 	return {
 		ASSETS: {} as Fetcher,
+		ALLOWED_RECIPIENT_DOMAIN: "company.example",
 		ALLOWED_SENDERS: "trusted@partner.example",
+		EMAIL_FORWARD_TO: "private-destination@test.invalid",
 		FORWARD_TO: "owner@mailbox.example",
 		ROUTE_ADDRESS: "support@company.example",
 		...overrides,
@@ -55,7 +59,7 @@ describe("Email Routing Worker", () => {
 		expect(html).toContain("configuration-warning");
 	});
 
-	it("renders configured addresses without exposing the allowlist", async () => {
+	it("renders setup addresses without exposing the private forwarding destination", async () => {
 		const response = await worker.fetch(
 			new Request("https://worker.test/"),
 			createEnv({
@@ -76,55 +80,58 @@ describe("Email Routing Worker", () => {
 		expect(html).toContain("destination@test.invalid");
 		expect(html).toContain("Configured");
 		expect(html).not.toContain("private-sender@test.invalid");
+		expect(html).not.toContain("private-destination@test.invalid");
 		expect(html).not.toContain("configuration-warning");
 	});
 
-	it("forwards email from an allowed sender", async () => {
+	it("forwards email to the catch-all domain from any sender", async () => {
 		const { message, forward, setReject } = createMessage();
 
 		await handleEmail(message, createEnv());
 
-		expect(forward).toHaveBeenCalledWith("owner@mailbox.example");
+		expect(forward).toHaveBeenCalledWith("private-destination@test.invalid");
 		expect(setReject).not.toHaveBeenCalled();
 	});
 
-	it("normalizes comma-separated sender addresses", async () => {
-		const { message, forward } = createMessage("SECOND@EXAMPLE.COM");
+	it("normalizes the recipient domain and accepts other local parts", async () => {
+		const { message, forward } = createMessage("SALES+TEST@COMPANY.EXAMPLE");
 
 		await handleEmail(
 			message,
 			createEnv({
-				ALLOWED_SENDERS: " first@example.com, second@example.com ",
+				ALLOWED_RECIPIENT_DOMAIN: " Company.Example ",
 			}),
 		);
 
 		expect(forward).toHaveBeenCalledOnce();
 	});
 
-	it("rejects email from an unknown sender", async () => {
-		const { message, forward, setReject } = createMessage(
-			"unknown@example.com",
-		);
+	it.each([
+		"support@unrelated.example",
+		"support@sub.company.example",
+		"support@company.example.unrelated.example",
+	])("rejects mail to %s even from a matching sender domain", async (to) => {
+		const { message, forward, setReject } = createMessage(to, "sender@company.example");
 
 		await handleEmail(message, createEnv());
 
-		expect(setReject).toHaveBeenCalledWith("Sender is not allowed");
+		expect(setReject).toHaveBeenCalledWith("Recipient domain is not allowed");
 		expect(forward).not.toHaveBeenCalled();
 	});
 
 	it("rejects email when the destination is missing", async () => {
 		const { message, forward, setReject } = createMessage();
 
-		await handleEmail(message, createEnv({ FORWARD_TO: " " }));
+		await handleEmail(message, createEnv({ EMAIL_FORWARD_TO: " " }));
 
 		expect(setReject).toHaveBeenCalledWith("Email routing is not configured");
 		expect(forward).not.toHaveBeenCalled();
 	});
 
-	it("rejects email when the sender allowlist is empty", async () => {
+	it("rejects email when the allowed recipient domain is empty", async () => {
 		const { message, forward, setReject } = createMessage();
 
-		await handleEmail(message, createEnv({ ALLOWED_SENDERS: " , " }));
+		await handleEmail(message, createEnv({ ALLOWED_RECIPIENT_DOMAIN: " " }));
 
 		expect(setReject).toHaveBeenCalledWith("Email routing is not configured");
 		expect(forward).not.toHaveBeenCalled();

@@ -10,6 +10,7 @@
 		"run_worker_first": ["/"]
 	},
 	"vars": {
+		"ALLOWED_RECIPIENT_DOMAIN": "unfinished.guru",
 		"ROUTE_ADDRESS": "support@company.example",
 		"FORWARD_TO": "owner@mailbox.example",
 		"ALLOWED_SENDERS": "trusted@partner.example"

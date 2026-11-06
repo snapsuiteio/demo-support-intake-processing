@@ -2,13 +2,13 @@
 
 # Email Routing Worker
 
-Forward incoming email from approved senders to a verified destination address with Cloudflare Email Routing.
+Forward incoming email addressed to an approved domain to a verified destination with Cloudflare Email Routing.
 
 <!-- dash-content-start -->
 
-This starter uses an Email Worker to forward messages from a configurable sender allowlist to one verified destination. Its top-level Wrangler `addresses` configuration creates and maintains the Email Routing rules that invoke the Worker.
+This Worker forwards messages addressed to a configurable recipient domain to one verified destination.
 
-The Worker rejects messages from unapproved senders and fails closed when its destination or allowlist is missing.
+The Worker rejects messages to other domains and rejects mail when its destination or allowed domain is missing.
 
 It uses [Email Routing](https://developers.cloudflare.com/email-service/email-routing/) for inbound delivery, a [Workers email handler](https://developers.cloudflare.com/email-service/api/route-emails/email-handler/) for forwarding decisions, and [Workers Assets](https://developers.cloudflare.com/workers/static-assets/) for the setup page.
 
@@ -18,9 +18,9 @@ It uses [Email Routing](https://developers.cloudflare.com/email-service/email-ro
 
 ## How it works
 
-1. Email Routing receives a message for an address declared in `wrangler.jsonc`.
-2. The Worker compares the SMTP envelope sender with `ALLOWED_SENDERS`.
-3. Approved messages are forwarded to `FORWARD_TO`; all other messages are rejected.
+1. A Cloudflare Email Routing rule passes incoming mail to the Worker.
+2. The Worker compares the domain of the SMTP envelope recipient with `ALLOWED_RECIPIENT_DOMAIN`.
+3. The Worker forwards matching messages to `EMAIL_FORWARD_TO`.
 
 The template uses TypeScript without an application framework. Its `ASSETS` binding serves the static setup page, while the email event handler processes incoming messages.
 
@@ -31,13 +31,9 @@ The template uses TypeScript without an application framework. Its `ASSETS` bind
 
 ## Configure the Worker
 
-Set these variables in `wrangler.jsonc` or during deployment:
+Set `ALLOWED_RECIPIENT_DOMAIN` in `wrangler.jsonc` and store the verified destination as the `EMAIL_FORWARD_TO` Worker secret. For a local email simulation, run `npm run dev -- --var EMAIL_FORWARD_TO:destination@example.com`.
 
-- `ROUTE_ADDRESS`: The Email Routing address shown on the setup page. Keep it in sync with the top-level `addresses` configuration.
-- `FORWARD_TO`: The verified destination that receives forwarded messages.
-- `ALLOWED_SENDERS`: A comma-separated list of sender addresses allowed to use the route.
-
-Then uncomment the top-level `addresses` section in `wrangler.jsonc` and replace its example address:
+The existing `unfinished.guru` catch-all is configured in Cloudflare. For a separate deployment that manages its own rules with Wrangler, uncomment the top-level `addresses` section and replace its example address.
 
 ```jsonc
 "addresses": ["support@company.example"]
@@ -45,7 +41,7 @@ Then uncomment the top-level `addresses` section in `wrangler.jsonc` and replace
 
 Use `"*@company.example"` instead to route every otherwise-unmatched address on a domain to this Worker.
 
-The setup page displays `ROUTE_ADDRESS` and `FORWARD_TO`, and indicates whether an allowlist exists without exposing its contents. It also warns while any email setting still contains example data.
+The template setup page displays sample settings. The email handler reads its live forwarding destination from the Worker secret.
 
 The `addresses` field is managed by Wrangler. On deployment, Wrangler reconciles Email Routing rules for this Worker with the configured list. Review destructive changes carefully before accepting them.
 
@@ -73,4 +69,4 @@ npm run check
 npm run deploy
 ```
 
-After deployment, send a message from an address in `ALLOWED_SENDERS` to one of the configured routing addresses.
+After deployment, send a test message to an address at `ALLOWED_RECIPIENT_DOMAIN`.
